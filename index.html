@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HoloBook Reader</title>
+    
+    <!-- Styles -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- PDF.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    </script>
+
+    <!-- PageFlip Library -->
+    <script src="https://cdn.jsdelivr.net/npm/page-flip@2.0.7/dist/js/page-flip.browser.min.js"></script>
+
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        body {
+            font-family: 'Space Grotesk', sans-serif;
+            background-color: #0f172a;
+            color: #e2e8f0;
+            overflow: hidden;
+            margin: 0;
+            padding: 0;
+        }
+        
+        /* Tech Scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(6, 182, 212, 0.2);
+            box-shadow: 0 0 40px rgba(6, 182, 212, 0.1);
+        }
+
+        /* Page styling for the flipbook */
+        .stf__wrapper {
+            perspective: 2000px !important;
+        }
+        
+        .page-content {
+            background-color: white;
+            height: 100%;
+            width: 100%;
+            overflow: hidden;
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center;
+            box-shadow: inset -5px 0 20px rgba(0,0,0,0.1);
+            position: relative;
+        }
+        
+        .page-footer {
+            position: absolute;
+            bottom: 10px;
+            width: 100%;
+            text-align: center;
+            font-size: 10px;
+            color: #94a3b8;
+            font-family: monospace;
+        }
+
+        /* Animation utilities */
+        .animate-float {
+            animation: float 6s ease-in-out infinite;
+        }
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+    </style>
+<script type="importmap">
+{
+  "imports": {
+    "@mediapipe/tasks-vision": "https://aistudiocdn.com/@mediapipe/tasks-vision@^0.10.22-rc.20250304",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
+    "react-webcam": "https://aistudiocdn.com/react-webcam@^7.2.0",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.555.0",
+    "react-pageflip": "https://aistudiocdn.com/react-pageflip@^2.0.3",
+    "react-pdf": "https://aistudiocdn.com/react-pdf@^10.2.0"
+  }
+}
+</script>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef, useCallback } = React;
+
+        // --- Icons (SVG Components) ---
+        const IconUpload = () => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+        );
+        const IconBook = () => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+        );
+        const IconChevronRight = () => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+        );
+        const IconChevronLeft = () => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+        );
+        const IconLoader = () => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+        );
+
+        // --- PDF Rendering Hook ---
+        const usePdfRenderer = (file) => {
+            const [pages, setPages] = useState([]);
+            const [loading, setLoading] = useState(false);
+            const [error, setError] = useState(null);
+
+            useEffect(() => {
+                if (!file) return;
+
+                const loadPdf = async () => {
+                    setLoading(true);
+                    setError(null);
+                    setPages([]);
+
+                    try {
+                        const buffer = await file.arrayBuffer();
+                        const loadingTask = pdfjsLib.getDocument(buffer);
+                        const pdf = await loadingTask.promise;
+                        
+                        const renderedPages = [];
+                        const scale = 1.5; // High quality scale
+
+                        for (let i = 1; i <= pdf.numPages; i++) {
+                            const page = await pdf.getPage(i);
+                            const viewport = page.getViewport({ scale });
+                            
+                            const canvas = document.createElement('canvas');
+                            const context = canvas.getContext('2d');
+                            canvas.height = viewport.height;
+                            canvas.width = viewport.width;
+
+                            await page.render({
+                                canvasContext: context,
+                                viewport: viewport
+                            }).promise;
+
+                            renderedPages.push(canvas.toDataURL('image/jpeg'));
+                        }
+                        setPages(renderedPages);
+                    } catch (err) {
+                        console.error(err);
+                        setError("Failed to process PDF. Ensure it's a valid file.");
+                    } finally {
+                        setLoading(false);
+                    }
+                };
+
+                loadPdf();
+            }, [file]);
+
+            return { pages, loading, error };
+        };
+
+        // --- Main App Component ---
+        const App = () => {
+            const [file, setFile] = useState(null);
+            const { pages, loading, error } = usePdfRenderer(file);
+            const bookRef = useRef(null);
+            const pageFlipRef = useRef(null);
+            const [currentPage, setCurrentPage] = useState(0);
+
+            // Book Dimensions
+            const BOOK_WIDTH = 400;
+            const BOOK_HEIGHT = 600;
+
+            const handleFileChange = (e) => {
+                if (e.target.files && e.target.files[0]) {
+                    setFile(e.target.files[0]);
+                }
+            };
+
+            // Initialize PageFlip
+            useEffect(() => {
+                if (pages.length > 0 && bookRef.current) {
+                    // Slight delay to ensure DOM is ready
+                    setTimeout(() => {
+                        // Cleanup previous instance if exists (though usually handled by unmount/key)
+                        if (pageFlipRef.current) {
+                            try { pageFlipRef.current.destroy(); } catch(e){}
+                        }
+
+                        const pageFlip = new PageFlip(bookRef.current, {
+                            width: BOOK_WIDTH,
+                            height: BOOK_HEIGHT,
+                            size: "fixed",
+                            showCover: true,
+                            usePortrait: false, // Landscape / Double Page
+                            maxShadowOpacity: 0.5,
+                            autoSize: true,
+                            mobileScrollSupport: false // Disable default scroll to prevent interference
+                        });
+
+                        pageFlip.loadFromHTML(document.querySelectorAll('.page'));
+                        
+                        pageFlip.on('flip', (e) => {
+                            setCurrentPage(e.data);
+                        });
+
+                        pageFlipRef.current = pageFlip;
+                    }, 100);
+                }
+            }, [pages]);
+
+            // Keyboard Navigation
+            useEffect(() => {
+                const handleKey = (e) => {
+                    if (!pageFlipRef.current) return;
+                    if (e.key === 'ArrowRight') pageFlipRef.current.flipNext();
+                    if (e.key === 'ArrowLeft') pageFlipRef.current.flipPrev();
+                };
+                window.addEventListener('keydown', handleKey);
+                return () => window.removeEventListener('keydown', handleKey);
+            }, []);
+
+            return (
+                <div className="min-h-screen w-full flex flex-col items-center justify-center relative">
+                    
+                    {/* Dynamic Background */}
+                    <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
+                        <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-cyan-900/20 blur-[120px] rounded-full animate-pulse"></div>
+                        <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] bg-indigo-900/20 blur-[120px] rounded-full animate-pulse" style={{animationDelay: '1s'}}></div>
+                        <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20"></div>
+                    </div>
+
+                    {/* Header */}
+                    <header className="absolute top-0 left-0 w-full p-6 flex justify-between items-center z-20">
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-cyan-500/10 border border-cyan-500/50 rounded flex items-center justify-center backdrop-blur-sm">
+                                <IconBook />
+                            </div>
+                            <div>
+                                <h1 className="text-xl font-bold tracking-tight text-white">HoloBook<span className="text-cyan-500">.Reader</span></h1>
+                                <p className="text-[10px] text-slate-500 font-mono tracking-wider">IMMERSIVE PDF SIMULATION</p>
+                            </div>
+                        </div>
+                    </header>
+
+                    {/* Main Content */}
+                    <main className="relative z-10 w-full h-full flex flex-col items-center justify-center min-h-[800px]">
+                        
+                        {!file && !loading && (
+                            <div className="glass-panel p-12 rounded-2xl border border-slate-700/50 flex flex-col items-center text-center max-w-md animate-float">
+                                <div className="w-20 h-20 bg-slate-800 rounded-full flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(6,182,212,0.2)]">
+                                    <div className="text-cyan-400 scale-125">
+                                        <IconUpload />
+                                    </div>
+                                </div>
+                                <h2 className="text-2xl font-bold text-white mb-2">Initialize Data Stream</h2>
+                                <p className="text-slate-400 mb-8 text-sm">Upload a standard PDF document to generate the holographic book simulation.</p>
+                                
+                                <label className="relative cursor-pointer group">
+                                    <input type="file" accept=".pdf" onChange={handleFileChange} className="hidden" />
+                                    <div className="px-8 py-3 bg-cyan-600 group-hover:bg-cyan-500 text-white font-semibold rounded-lg shadow-lg shadow-cyan-900/50 transition-all transform active:scale-95 flex items-center gap-2">
+                                        <span>ACCESS ARCHIVES</span>
+                                        <IconChevronRight />
+                                    </div>
+                                </label>
+                            </div>
+                        )}
+
+                        {loading && (
+                            <div className="flex flex-col items-center gap-4">
+                                <div className="text-cyan-500 w-12 h-12">
+                                    <IconLoader />
+                                </div>
+                                <span className="text-cyan-400 font-mono text-sm animate-pulse">PROCESSING NEURAL DATA...</span>
+                            </div>
+                        )}
+
+                        {error && (
+                            <div className="text-red-400 bg-red-900/20 px-6 py-4 rounded-lg border border-red-800">
+                                {error}
+                                <button onClick={() => setFile(null)} className="block mt-2 text-xs underline opacity-80 hover:opacity-100">Try Again</button>
+                            </div>
+                        )}
+
+                        {/* The Book Container */}
+                        {pages.length > 0 && (
+                            <div className="relative fade-in">
+                                {/* PageFlip mounting point */}
+                                <div ref={bookRef} className="shadow-2xl shadow-black/50">
+                                    {pages.map((imgSrc, index) => (
+                                        <div key={index} className="page">
+                                            <div 
+                                                className="page-content"
+                                                style={{backgroundImage: `url(${imgSrc})`}}
+                                            >
+                                                <div className="page-footer">Page {index + 1}</div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {/* Controls */}
+                                <div className="absolute -bottom-20 left-1/2 -translate-x-1/2 flex items-center gap-4 glass-panel px-6 py-3 rounded-full">
+                                    <button 
+                                        onClick={() => pageFlipRef.current?.flipPrev()}
+                                        className="p-2 hover:bg-white/10 rounded-full transition-colors text-slate-300 hover:text-white"
+                                    >
+                                        <IconChevronLeft />
+                                    </button>
+                                    <span className="font-mono text-xs text-cyan-400 min-w-[80px] text-center">
+                                        SPREAD {Math.floor(currentPage / 2) + 1}
+                                    </span>
+                                    <button 
+                                        onClick={() => pageFlipRef.current?.flipNext()}
+                                        className="p-2 hover:bg-white/10 rounded-full transition-colors text-slate-300 hover:text-white"
+                                    >
+                                        <IconChevronRight />
+                                    </button>
+                                </div>
+                                
+                                <div className="absolute -bottom-32 text-slate-500 text-[10px] font-mono">
+                                    KEYBOARD NAVIGATION: ARROW KEYS
+                                </div>
+                            </div>
+                        )}
+
+                    </main>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
